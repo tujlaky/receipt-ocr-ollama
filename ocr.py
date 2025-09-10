@@ -1,6 +1,10 @@
 import sys
 import ollama
 import argparse
+from PIL import Image
+import tempfile
+import os
+
 
 DEFAULT_MODEL = "llama3.2-vision"
 
@@ -41,25 +45,40 @@ Rules:
 """
 
 
+def preprocess_image(image_path, max_side=1280):
+    img = Image.open(image_path)
+    width, height = img.size
+    scale = max(width, height) / max_side
+
+    if scale > 1.0:
+        img = img.resize((int(width / scale), int(height / scale)), Image.LANCZOS)
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        img.save(tmp.name, format="PNG", optimize=True)
+        print(f"Image saved to: {tmp.name}")
+        return tmp
+
+
 def extract_text_from_image(image_path, model):
+    tmp = preprocess_image(image_path, 1280)
+
+    print(tmp.name)
+
     response = ollama.chat(
         model=model,
         messages=[
             {
                 "role": "user",
                 "content": prompt,
-                "images": [image_path],
+                "images": [tmp.name],
             }
         ],
         keep_alive="30m",
-        options={
-            "num_ctx": 2048,
-            "num_predict": 350,  # plenty for compact JSON
-            "temperature": 0,
-            # try increasing threads if you like: "num_thread": 8,
-        },
+        options={"num_ctx": 2048, "num_predict": 350, "temperature": 0},
         format="json",
     )
+
+    os.unlink(tmp.name)
 
     return response["message"]["content"]
 
@@ -74,6 +93,8 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+
+print(f"Model: {args.model}")
 
 text = extract_text_from_image(args.image_path, args.model)
 print(text)
